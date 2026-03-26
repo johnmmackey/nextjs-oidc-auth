@@ -198,12 +198,18 @@ export function createCognitoAuth(config: CognitoAuthConfig) {
     if (!pending) throw new Error("Invalid or expired OAuth state");
     await pkceStore.delete(`pkce:${state}`);
 
+    // Reconstruct the callback URL using the configured appUrl origin so that
+    // openid-client derives the correct redirect_uri for the token exchange,
+    // regardless of the internal hostname/port seen by the Next.js server.
+    const appOrigin = new URL(appUrl).origin;
+    const canonicalCallbackUrl = new URL(callbackUrl.pathname + callbackUrl.search, appOrigin);
+
     const oidcConfig = await getOidcConfig();
-    const tokens = await authorizationCodeGrant(oidcConfig, callbackUrl, {
+    const tokens = await authorizationCodeGrant(oidcConfig, canonicalCallbackUrl, {
       pkceCodeVerifier: pending.codeVerifier,
       expectedState: state,
       expectedNonce: pending.nonce,
-    }, { redirect_uri: redirectUri });
+    });
 
     const claims = tokens.claims();
     if (!claims) throw new Error("No ID token claims in token response");
