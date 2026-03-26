@@ -56,6 +56,10 @@ export interface CognitoAuthConfig {
   /** PKCE state TTL in seconds. Defaults to 10 minutes. */
   pkceTtlSeconds?: number;
   /**
+   * Path to redirect to after a successful sign-in. Defaults to "/".
+   */
+  signInRedirectPath?: string;
+  /**
    * Cognito hosted UI domain (e.g. "my-app.auth.us-east-1.amazoncognito.com").
    * When set, signing out will redirect to Cognito's logout endpoint so the
    * Cognito SSO session is also terminated.
@@ -145,6 +149,7 @@ export function createCognitoAuth(config: CognitoAuthConfig) {
     cookieName = "fd_session",
     sessionTtlSeconds = 8 * 60 * 60,
     pkceTtlSeconds = 10 * 60,
+    signInRedirectPath = "/",
     cognitoDomain,
     logoutUri,
   } = config;
@@ -283,7 +288,7 @@ export function createCognitoAuth(config: CognitoAuthConfig) {
       case "callback": {
         try {
           const { cookie } = await completeSignIn(new URL(request.url));
-          const dest = new URL("/frontdesk/search", appUrl);
+          const dest = new URL(signInRedirectPath, appUrl);
           const res = NextResponse.redirect(dest);
           res.cookies.set(cookie);
           return res;
