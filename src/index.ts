@@ -203,7 +203,7 @@ export function createCognitoAuth(config: CognitoAuthConfig) {
       pkceCodeVerifier: pending.codeVerifier,
       expectedState: state,
       expectedNonce: pending.nonce,
-    });
+    }, { redirect_uri: redirectUri });
 
     const claims = tokens.claims();
     if (!claims) throw new Error("No ID token claims in token response");
