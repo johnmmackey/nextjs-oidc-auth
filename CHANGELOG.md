@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.4] - 2026-03-26
+
+### Added
+
+- `debug` option in `CognitoAuthConfig` — enables `[oidc-auth]` prefixed checkpoint
+  logging to stdout at each async step of the sign-in flow (PKCE lookup, OIDC
+  discovery, token exchange, session write). Useful for diagnosing hangs where
+  a promise stalls silently and error handlers never fire.
+- `OIDC_DEBUG=1` environment variable as a runtime alternative to `debug: true`.
+
 ## [0.3.3] - 2026-03-26
 - fix a redirect bug related to URLs in the token exchange
 

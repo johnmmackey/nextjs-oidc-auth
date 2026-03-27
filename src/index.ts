@@ -71,6 +71,17 @@ export interface CognitoAuthConfig {
    * Defaults to "${appUrl}/auth/signin".
    */
   logoutUri?: string;
+  /**
+   * Enable debug logging to stdout. Each step of the sign-in/sign-out flow
+   * emits a `[oidc-auth]` prefixed log line so you can pinpoint exactly where
+   * a hang or error occurs.
+   *
+   * Can also be enabled at runtime by setting the `OIDC_DEBUG=1` environment
+   * variable without changing code.
+   *
+   * Defaults to `false`.
+   */
+  debug?: boolean;
 }
 
 export interface SessionCookie {
@@ -154,6 +165,11 @@ export function createCognitoAuth(config: CognitoAuthConfig) {
     logoutUri,
   } = config;
 
+  const debugEnabled = config.debug ?? process.env.OIDC_DEBUG === "1";
+  const log = debugEnabled
+    ? (msg: string, ...args: unknown[]) => console.log(`[oidc-auth] ${msg}`, ...args)
+    : () => {};
+
   const pkceStore: KVStore<PkceEntry> = config.pkceStore ?? makeMemoryKVStore<PkceEntry>();
 
   const redirectUri = `${appUrl}/api/auth/callback`;
@@ -166,7 +182,9 @@ export function createCognitoAuth(config: CognitoAuthConfig) {
   // so that HMR reloads always produce a fresh Configuration instance.
   async function getOidcConfig() {
     if (!_oidcConfig) {
+      log("discovery: fetching OIDC config from %s", issuerUrl.toString());
       _oidcConfig = await discovery(issuerUrl, clientId, clientSecret);
+      log("discovery: complete");
     }
     return _oidcConfig;
   }
@@ -174,15 +192,18 @@ export function createCognitoAuth(config: CognitoAuthConfig) {
   // ─── Core auth functions ────────────────────────────────────────────────
 
   async function beginSignIn(): Promise<URL> {
+    log("beginSignIn: start");
     const oidcConfig = await getOidcConfig();
     const state = randomState();
     const nonce = randomNonce();
     const codeVerifier = randomPKCECodeVerifier();
     const codeChallenge = await calculatePKCECodeChallenge(codeVerifier);
 
+    log("beginSignIn: storing PKCE state=%s", state);
     await pkceStore.set(`pkce:${state}`, { codeVerifier, nonce }, pkceTtlSeconds);
+    log("beginSignIn: PKCE stored");
 
-    return buildAuthorizationUrl(oidcConfig, {
+    const authUrl = buildAuthorizationUrl(oidcConfig, {
       redirect_uri: redirectUri,
       scope: "openid email",
       state,
@@ -190,11 +211,17 @@ export function createCognitoAuth(config: CognitoAuthConfig) {
       code_challenge: codeChallenge,
       code_challenge_method: "S256",
     });
+    log("beginSignIn: redirecting to %s", authUrl.toString());
+    return authUrl;
   }
 
   async function completeSignIn(callbackUrl: URL): Promise<{ cookie: SessionCookie }> {
     const state = callbackUrl.searchParams.get("state") ?? "";
+    log("completeSignIn: start, state=%s", state);
+
+    log("completeSignIn: looking up PKCE state");
     const pending = await pkceStore.get(`pkce:${state}`);
+    log("completeSignIn: PKCE lookup done, found=%s", !!pending);
     if (!pending) throw new Error("Invalid or expired OAuth state");
     await pkceStore.delete(`pkce:${state}`);
 
@@ -203,8 +230,11 @@ export function createCognitoAuth(config: CognitoAuthConfig) {
     // regardless of the internal hostname/port seen by the Next.js server.
     const appOrigin = new URL(appUrl).origin;
     const canonicalCallbackUrl = new URL(callbackUrl.pathname + callbackUrl.search, appOrigin);
+    log("completeSignIn: canonical callback URL: %s", canonicalCallbackUrl.toString());
 
+    log("completeSignIn: fetching OIDC config");
     const oidcConfig = await getOidcConfig();
+    log("completeSignIn: starting token exchange");
     const tokens = await authorizationCodeGrant(oidcConfig, canonicalCallbackUrl, {
       pkceCodeVerifier: pending.codeVerifier,
       expectedState: state,
@@ -213,6 +243,7 @@ export function createCognitoAuth(config: CognitoAuthConfig) {
 
     const claims = tokens.claims();
     if (!claims) throw new Error("No ID token claims in token response");
+    log("completeSignIn: token exchange complete, sub=%s", claims.sub);
 
     const sessionData: SessionData = {
       sub: claims.sub,
@@ -226,7 +257,9 @@ export function createCognitoAuth(config: CognitoAuthConfig) {
     };
 
     const sessionId = randomUUID();
+    log("completeSignIn: storing session id=%s", sessionId);
     await sessionStore.set(sessionId, sessionData, sessionTtlSeconds);
+    log("completeSignIn: session stored");
 
     return {
       cookie: {
@@ -250,6 +283,7 @@ export function createCognitoAuth(config: CognitoAuthConfig) {
 
     // Auto-refresh when within 5 minutes of expiry
     if (data.refreshToken && Date.now() > data.accessTokenExpiresAt - 5 * 60 * 1000) {
+      log("getSession: access token near expiry, refreshing for sub=%s", data.sub);
       try {
         const oidcConfig = await getOidcConfig();
         const tokens = await refreshTokenGrant(oidcConfig, data.refreshToken);
@@ -260,8 +294,10 @@ export function createCognitoAuth(config: CognitoAuthConfig) {
           accessTokenExpiresAt: Date.now() + (tokens.expires_in ?? 3600) * 1000,
         };
         await sessionStore.set(sessionId, refreshed, sessionTtlSeconds);
+        log("getSession: token refresh complete");
         return refreshed;
-      } catch {
+      } catch (err) {
+        log("getSession: token refresh failed: %s", String(err));
         // Refresh failed — return stale session; will retry on next request
       }
     }
@@ -281,6 +317,7 @@ export function createCognitoAuth(config: CognitoAuthConfig) {
 
   async function GET(request: Request, { params }: Ctx): Promise<Response> {
     const [segment] = (await params).path;
+    log("GET /api/auth/%s", segment);
 
     switch (segment) {
       case "signin": {
@@ -295,6 +332,7 @@ export function createCognitoAuth(config: CognitoAuthConfig) {
         try {
           const { cookie } = await completeSignIn(new URL(request.url));
           const dest = new URL(signInRedirectPath, appUrl);
+          log("completeSignIn: redirecting to %s", dest.toString());
           const res = NextResponse.redirect(dest);
           res.cookies.set(cookie);
           return res;
@@ -312,6 +350,7 @@ export function createCognitoAuth(config: CognitoAuthConfig) {
         return Response.json({ sub, email, givenName, familyName });
       }
       case "signout": {
+        log("signout: clearing session");
         const clearCookie = await deleteSession(request.headers);
         const postLogoutRedirect = logoutUri ?? `${appUrl}/auth/signin`;
         let dest: string;
@@ -323,6 +362,7 @@ export function createCognitoAuth(config: CognitoAuthConfig) {
         } else {
           dest = postLogoutRedirect;
         }
+        log("signout: redirecting to %s", dest);
         return NextResponse.redirect(dest, {
           status: 302,
           headers: { "Set-Cookie": clearCookie },
