@@ -1,6 +1,6 @@
 {
   "name": "@johnmmackey/nextjs-oidc-auth",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "description": "Cognito OIDC auth handler for Next.js App Router",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
