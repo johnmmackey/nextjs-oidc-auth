@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.5] - 2026-03-27
+- fixed scope - added profile. Is also now configurable through the API
+
 ## [0.3.4] - 2026-03-26
 
 ### Added

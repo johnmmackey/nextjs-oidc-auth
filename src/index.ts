@@ -72,6 +72,11 @@ export interface CognitoAuthConfig {
    */
   logoutUri?: string;
   /**
+   * OAuth scopes to request during sign-in.
+   * Defaults to "openid email profile" which includes given_name and family_name claims.
+   */
+  scope?: string;
+  /**
    * Enable debug logging to stdout. Each step of the sign-in/sign-out flow
    * emits a `[oidc-auth]` prefixed log line so you can pinpoint exactly where
    * a hang or error occurs.
@@ -163,6 +168,7 @@ export function createCognitoAuth(config: CognitoAuthConfig) {
     signInRedirectPath = "/",
     cognitoDomain,
     logoutUri,
+    scope = "openid email profile",
   } = config;
 
   const debugEnabled = config.debug ?? process.env.OIDC_DEBUG === "1";
@@ -205,7 +211,7 @@ export function createCognitoAuth(config: CognitoAuthConfig) {
 
     const authUrl = buildAuthorizationUrl(oidcConfig, {
       redirect_uri: redirectUri,
-      scope: "openid email",
+      scope,
       state,
       nonce,
       code_challenge: codeChallenge,
