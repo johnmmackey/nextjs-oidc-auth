@@ -87,6 +87,16 @@ export interface CognitoAuthConfig {
    * Defaults to `false`.
    */
   debug?: boolean;
+  /**
+   * Optional callback invoked once per login, immediately after the session is
+   * first written to the session store. Use this to provision user records,
+   * sync profile data, or trigger post-login side effects.
+   *
+   * Any error thrown here is propagated and will prevent the sign-in redirect
+   * from completing, so catch internally if you want sign-in to succeed
+   * regardless.
+   */
+  onSignIn?: (session: SessionData) => Promise<void> | void;
 }
 
 export interface SessionCookie {
@@ -266,6 +276,12 @@ export function createCognitoAuth(config: CognitoAuthConfig) {
     log("completeSignIn: storing session id=%s", sessionId);
     await sessionStore.set(sessionId, sessionData, sessionTtlSeconds);
     log("completeSignIn: session stored");
+
+    if (config.onSignIn) {
+      log("completeSignIn: calling onSignIn hook");
+      await config.onSignIn(sessionData);
+      log("completeSignIn: onSignIn hook complete");
+    }
 
     return {
       cookie: {
