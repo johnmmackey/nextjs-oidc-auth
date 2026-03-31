@@ -35,6 +35,8 @@ export interface SessionData {
   idToken?: string;
 }
 
+export type CookieSameSite = "lax" | "strict" | "none";
+
 /** Configuration required to initialise a Cognito OIDC auth handler. */
 export interface CognitoAuthConfig {
   region: string;
@@ -51,6 +53,14 @@ export interface CognitoAuthConfig {
   pkceStore?: KVStore<PkceEntry>;
   /** Cookie name. Defaults to "fd_session". */
   cookieName?: string;
+  /** Optional cookie domain. Defaults to a host-only cookie. */
+  cookieDomain?: string;
+  /** Cookie path. Defaults to "/". */
+  cookiePath?: string;
+  /** SameSite policy. Defaults to "lax". */
+  cookieSameSite?: CookieSameSite;
+  /** Secure flag. Defaults to true in production, otherwise false. */
+  cookieSecure?: boolean;
   /** Session TTL in seconds. Defaults to 8 hours. */
   sessionTtlSeconds?: number;
   /** PKCE state TTL in seconds. Defaults to 10 minutes. */
@@ -103,9 +113,17 @@ export interface SessionCookie {
   name: string;
   value: string;
   httpOnly: true;
-  sameSite: "lax";
+  sameSite: CookieSameSite;
   path: string;
   maxAge: number;
+  secure: boolean;
+  domain?: string;
+}
+
+interface CookieScope {
+  domain?: string;
+  path: string;
+  sameSite: CookieSameSite;
   secure: boolean;
 }
 
@@ -173,6 +191,10 @@ export function createCognitoAuth(config: CognitoAuthConfig) {
     appUrl,
     sessionStore,
     cookieName = "fd_session",
+    cookieDomain,
+    cookiePath = "/",
+    cookieSameSite = "lax",
+    cookieSecure = process.env.NODE_ENV === "production",
     sessionTtlSeconds = 8 * 60 * 60,
     pkceTtlSeconds = 10 * 60,
     signInRedirectPath = "/",
@@ -187,6 +209,13 @@ export function createCognitoAuth(config: CognitoAuthConfig) {
     : () => {};
 
   const pkceStore: KVStore<PkceEntry> = config.pkceStore ?? makeMemoryKVStore<PkceEntry>();
+
+  const cookieScope: CookieScope = {
+    domain: cookieDomain,
+    path: cookiePath,
+    sameSite: cookieSameSite,
+    secure: cookieSecure,
+  };
 
   const redirectUri = `${appUrl}/api/auth/callback`;
 
@@ -288,10 +317,11 @@ export function createCognitoAuth(config: CognitoAuthConfig) {
         name: cookieName,
         value: sessionId,
         httpOnly: true,
-        sameSite: "lax",
-        path: "/",
+        sameSite: cookieScope.sameSite,
+        path: cookieScope.path,
         maxAge: sessionTtlSeconds,
-        secure: process.env.NODE_ENV === "production",
+        secure: cookieScope.secure,
+        domain: cookieScope.domain,
       },
     };
   }
@@ -330,7 +360,7 @@ export function createCognitoAuth(config: CognitoAuthConfig) {
   async function deleteSession(headers: Headers): Promise<string> {
     const sessionId = parseCookieHeader(headers.get("cookie") ?? "", cookieName);
     if (sessionId) await sessionStore.delete(sessionId);
-    return clearSessionCookie(cookieName);
+    return clearSessionCookie({ name: cookieName, ...cookieScope });
   }
 
   // ─── Next.js App Router handlers ───────────────────────────────────────
@@ -407,9 +437,21 @@ export function createCognitoAuth(config: CognitoAuthConfig) {
 
 // ─── Cookie helpers ───────────────────────────────────────────────────────────
 
-function clearSessionCookie(name: string): string {
-  const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
-  return `${name}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0${secure}`;
+function clearSessionCookie(cookie: Pick<SessionCookie, "name" | "domain" | "path" | "sameSite" | "secure">): string {
+  const domain = cookie.domain ? `; Domain=${cookie.domain}` : "";
+  const secure = cookie.secure ? "; Secure" : "";
+  return `${cookie.name}=; HttpOnly; SameSite=${formatSameSite(cookie.sameSite)}; Path=${cookie.path}; Max-Age=0${domain}${secure}`;
+}
+
+function formatSameSite(value: CookieSameSite): "Lax" | "Strict" | "None" {
+  switch (value) {
+    case "strict":
+      return "Strict";
+    case "none":
+      return "None";
+    default:
+      return "Lax";
+  }
 }
 
 function parseCookieHeader(cookieHeader: string, name: string): string | null {

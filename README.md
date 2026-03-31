@@ -103,6 +103,10 @@ interface SessionData {
 | `sessionStore` | `KVStore<SessionData>` | **required** | Server-side session storage |
 | `pkceStore` | `KVStore<PkceEntry>` | in-memory | Storage for PKCE state during the auth flow |
 | `cookieName` | `string` | `"fd_session"` | Name of the session cookie |
+| `cookieDomain` | `string` | host-only | Cookie domain scope. Set to a parent domain such as `".example.com"` to share a session across subdomains |
+| `cookiePath` | `string` | `"/"` | Cookie path scope |
+| `cookieSameSite` | `"lax" \| "strict" \| "none"` | `"lax"` | SameSite attribute for the session cookie |
+| `cookieSecure` | `boolean` | `NODE_ENV === "production"` | Secure attribute for the session cookie |
 | `sessionTtlSeconds` | `number` | `28800` (8 h) | Session lifetime in seconds |
 | `pkceTtlSeconds` | `number` | `600` (10 min) | PKCE state lifetime in seconds |
 | `signInRedirectPath` | `string` | `"/"` | Where to redirect after successful sign-in |
@@ -110,6 +114,51 @@ interface SessionData {
 | `logoutUri` | `string` | `${appUrl}/auth/signin` | Post-logout redirect URI (must be registered in Cognito) |
 | `scope` | `string` | `"openid email profile"` | OAuth scopes requested during sign-in |
 | `debug` | `boolean` | `false` | Enable `[oidc-auth]` checkpoint logging to stdout |
+
+### Cookie scoping and shared sessions
+
+By default, the library issues a host-only session cookie, so existing behavior is unchanged. That is the right choice for a single app host, including the common case where the same host is used on different local ports.
+
+To share a session cookie across subdomains such as `competition.example.com` and `officials.example.com`, set `cookieDomain` to the parent domain:
+
+```ts
+createCognitoAuth({
+  // ...
+  appUrl: "https://competition.example.com",
+  cookieDomain: ".example.com",
+  cookieSameSite: "lax",
+  cookieSecure: true,
+});
+```
+
+Notes:
+
+- Leaving `cookieDomain` unset keeps the cookie host-only.
+- Apps on the same host but different ports usually do not need `cookieDomain`.
+- Cross-subdomain production deployments should use HTTPS. In practice that means leaving `cookieSecure` enabled or setting it explicitly to `true`.
+
+### Migration notes
+
+No code changes are required for existing consumers.
+
+- If you omit the new cookie options, behavior stays the same: host-only cookie, `Path=/`, `SameSite=lax`, and `Secure` enabled automatically in production only.
+- To share a session across subdomains, set `cookieDomain` to a parent domain such as `".example.com"` in every participating app.
+- If you set `cookieSameSite: "none"`, you should also set `cookieSecure: true` for browser compatibility.
+- Sign-out now clears cookies using the same scope attributes as sign-in, so shared-domain cookies are deleted correctly when `cookieDomain` is configured.
+
+### Release checklist
+
+Use this flow when cutting a git-tagged release:
+
+1. Confirm the intended version is set in `package.json` and `package-lock.json`.
+2. Update `CHANGELOG.md` so the release notes are under a dated heading for that version.
+3. Run `npm test`.
+4. Run `npm pack --dry-run` and confirm only the expected files will ship.
+5. Commit the release changes, for example `git add . && git commit -m "release: v0.5.0"`.
+6. Create an annotated tag, for example `git tag -a v0.5.0 -m "v0.5.0"`.
+7. Push the commit and tag with `git push origin main --follow-tags`.
+8. Publish the package with `npm publish` from the tagged commit.
+9. Verify the published version and, if you use GitHub releases, create a release from the matching tag.
 
 ## KVStore interface
 

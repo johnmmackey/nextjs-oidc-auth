@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-03-31
+
+### Added
+
+- configurable cookie scoping in `CognitoAuthConfig` via `cookieDomain`, `cookiePath`, `cookieSameSite`, and `cookieSecure`
+- domain-aware session cookie clearing so cross-subdomain shared cookies can be removed correctly on sign-out
+- cookie behavior tests covering default host-only cookies and configured shared-domain cookies
+
+### Changed
+
+- `SessionCookie` now supports an optional `domain` and configurable SameSite values
+
 ## [0.3.5] - 2026-03-27
 - fixed scope - added profile. Is also now configurable through the API
 

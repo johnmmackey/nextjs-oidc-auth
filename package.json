@@ -1,6 +1,6 @@
 {
   "name": "@johnmmackey/nextjs-oidc-auth",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Cognito OIDC auth handler for Next.js App Router",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
@@ -20,6 +20,7 @@
   "scripts": {
     "build": "tsup src/index.ts --format cjs,esm --dts --external server-only --external next",
     "dev": "tsup src/index.ts --format cjs,esm --dts --watch --external server-only --external next",
+    "test": "npm run build && node --test test/**/*.test.cjs",
     "prepublishOnly": "npm run build"
   },
   "keywords": [
